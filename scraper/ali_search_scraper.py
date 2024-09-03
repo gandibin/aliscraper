@@ -2,13 +2,20 @@ import subprocess
 import time
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-import urllib
+import getpass
 import os
+import sqlite3
 
 class SearchScraper:
     def __init__(self):
-        self.chrome_path = r"C:\Users\Xingwei-Tech\AppData\Local\Google\Chrome\Application\chrome.exe"
+        self.username = getpass.getuser()
+        self.chrome_base_path = r"C:\Users\{}\AppData\Local\Google\Chrome\Application\chrome.exe"
         self.user_data_dir = "C:/ChromeDevSession"
+        self.chrome_path = self.chrome_base_path.format(self.username)
+    
+        # 检查Chrome可执行文件是否存在
+        if not os.path.exists(self.chrome_path):
+            raise FileNotFoundError(f"未找到用户 {self.username} 的Chrome可执行文件，路径为 {self.chrome_path}")
         self.remote_debugging_port = 9222
         self.driver = None
 
@@ -58,17 +65,20 @@ class SearchScraper:
         time.sleep(2)
         
         
-    def get_urls(self,url):
+    def get_urls(self,product_page,urls):
         #打开新的页面
-        self.driver.get(url)
+        self.driver.get(product_page)
         # 滚动到页面底部
         self.scroll_to_bottom()
-        # 获取 class 为 "feeds-wrapper" 的 div 下所有的 <a> 标签
-        feeds_wrapper = self.driver.find_element(By.CLASS_NAME, "feeds-wrapper")
-        links = feeds_wrapper.find_elements(By.TAG_NAME, "a")
+        # 获取 div data-content="abox-ProductNormalList 西面的
+        productNormalList = self.driver.find_element(By.CSS_SELECTOR, 'div[data-content="abox-ProductNormalList"]')
+        links = productNormalList.find_elements(By.TAG_NAME, "a")
         
-        # 获取以 https://detail.1688.com 开头的链接
-        urls = [link.get_attribute("href") for link in links if link.get_attribute("href").startswith("https://detail.1688.com")]
+        for link in links:
+            url = link.get_attribute("href")
+            if url and url.startswith("https://www.alibaba.com"):
+                print(url)                
+                urls.add(url)
         return urls
 
     def search_keyword(self, keyword):
@@ -85,48 +95,59 @@ class SearchScraper:
         # 滚动到页面底部
         self.scroll_to_bottom()
 
-        # 获取 class 为 "feeds-wrapper" 的 div 下所有的 <a> 标签
-        feeds_wrapper = self.driver.find_element(By.CLASS_NAME, "feeds-wrapper")
-        links = feeds_wrapper.find_elements(By.TAG_NAME, "a")
+        # data-content="abox-ProductNormalList
+        productNormalList = self.driver.find_element(By.CSS_SELECTOR, 'div[data-content="abox-ProductNormalList"]')
+        links = productNormalList.find_elements(By.TAG_NAME, "a")
         
-        # 获取以 https://detail.1688.com 开头的链接
-        urls = [link.get_attribute("href") for link in links if link.get_attribute("href").startswith("https://detail.1688.com")]
+        # 获取以 https://www.alibaba.com 开头的链接
+        urls =set()
+        for link in links:
+            url = link.get_attribute("href")
+            if url and url.startswith("https://www.alibaba.com"):
+                print(url) 
+                urls.add(url)      
         
-        all_urls = []
-        all_urls.extend(urls)
+        # 查找包含 class 为 'searchx-pagination-list' 的 div 元素
+        div_element = self.driver.find_element(By.CSS_SELECTOR, 'div.searchx-pagination-list')
         
-        # 获取总页数
-        total_pages_element = self.driver.find_element(By.CLASS_NAME, "fui-paging-num")
-        total_pages = int(total_pages_element.text)
-        print(f"Total pages found: {total_pages}")
-        # 最多抓取10页
-        max_pages = min(total_pages, 10)
-        i = 2
-        for page in range(1, max_pages):
+        # 在该 div 元素内查找所有的 a 链接
+        a_elements = div_element.find_elements(By.TAG_NAME, 'a')
+        
+        # 排除第一个 a 链接，获取其余的 href 属性值
+        links = [a.get_attribute('href') for a in a_elements[1:]]   
+        for link in links:
             time.sleep(5)
-            new_links = f"{url}&beginPage={i}"
-            print(f"new link is:{new_links}")
-            urls =self.get_urls(new_links)
-            all_urls.extend(urls)
-            i =i +1
-            
-        return all_urls
-            
+            urls =self.get_urls(link,urls)
+     
+        return  urls
         
 
     def execute_search(self, keyword):
+        
+        conn = sqlite3.connect('aliswitch.db')
+        cursor = conn.cursor()
         self.start_chrome_with_debugging()
         urls = self.search_keyword(keyword)
-        
-        print(f"URLs have been insert to database")
-        self.stop_chrome_debugging()
+        return urls
             
 if __name__ == '__main__':
     current_dir = os.path.dirname(__file__)
     root_dir = os.path.dirname(current_dir)
+    db_file = os.path.join(root_dir,"aliswitch.db")
+    # Connect to the SQLite database
+    conn = sqlite3.connect(db_file)
+    cursor = conn.cursor()
     
-    keyword_list =['network switch','poe network switch','managed network switch','managed network switch',' business network switches','enterprise network switch']
+    keyword_list =['network switch','poe network switch','managed network switch',' business network switches','enterprise network switch']
     SearchScraper =SearchScraper()
     for keyword in keyword_list:
-        SearchScraper.execute_search(keyword)
+        urls = SearchScraper.execute_search(keyword)
+        print("data ready, start to insert")
+        insert_query = "INSERT OR IGNORE INTO aliswitch (from_keyword, product_link) VALUES (?, ?)"
+        for url in urls:
+            cursor.execute(insert_query, (keyword, url))
+        # Commit the transaction
+        conn.commit()   
+        time.sleep(5)
+        SearchScraper.stop_chrome_debugging()
         
