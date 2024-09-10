@@ -236,6 +236,10 @@ class ProductScraper:
                 # 创建一个标签，提示用户手动操作
                 label = tk.Label(root, text="检测到验证码，请手动解决问题后点击确定继续。")
                 label.pack(padx=20, pady=20)
+
+                # 创建倒计时标签
+                countdown_label = tk.Label(root, text="剩余时间: 10秒")
+                countdown_label.pack(padx=20, pady=10)
                 
                 # 标记用户的选择
                 user_choice = tk.StringVar(value="repeat")  # 初始值为 "repeat"
@@ -308,6 +312,38 @@ class ProductScraper:
                     row_dict[min_moq] = price
             except:
                 pass
+
+            #设置促销价格的sku
+            try:
+                promotion_price = sku_element.find_element(By.CLASS_NAME,"promotion-price")
+                if promotion_price:
+                    price = promotion_price.find_element(By.CLASS_NAME,"normal").text.strip()
+                    min_moq =  promotion_price.find_element(By.CLASS_NAME,"min-moq").text.strip()
+                    row_dict[min_moq] = price
+            except:
+                pass
+
+            #第二种设置促销价格的sku
+            try:
+                price_range = sku_element.find_element(By.CLASS_NAME,"price-range")
+                promotion_element = sku_element.find_element(By.CLASS_NAME,"promotion")
+                if promotion_element:
+                    price = price_range.find_element(By.CLASS_NAME,"promotion").text.strip()
+                    min_moq =  price_range.find_element(By.CLASS_NAME,"min-moq").text.strip()
+                    row_dict[min_moq] = price
+            except:
+                pass
+
+            #第三种设置促销价格的sku
+            try:
+                product_activity_element = sku_element.find_element(By.CLASS_NAME,"product-activity")
+                if product_activity_element:
+                    price = self.driver.find_element(By.CLASS_NAME,"promotion-price").text.strip()
+                    promotion_moq = self.driver.find_element(By.CLASS_NAME,"promotion-moq").text.strip()
+                    row_dict[promotion_moq] = price
+
+            except:
+                traceback.print_exc()
             sku_data.append(row_dict)
 
         return str(sku_data)
