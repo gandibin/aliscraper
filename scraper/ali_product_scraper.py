@@ -7,17 +7,90 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.wait import WebDriverWait
 from selenium.common.exceptions import TimeoutException
 import tkinter as tk
-from tkinter import messagebox
 from urllib.parse import urlparse
-import pandas as pd
-from openpyxl import load_workbook
 import sqlite3
+import traceback
+from selenium.webdriver.common.action_chains import ActionChains
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+
 
 class ProductScraper:
     def __init__(self):
         self.driver = None
         self.chrome_process =None
-    
+        self.chrome_process = None 
+        self.driver = None
+        #我能重新登录我自己的github 账号吗? 会不会冲突
+
+
+
+    def safe_click(self, element):
+        # 确保页面已完全加载
+        WebDriverWait(self.driver, 10).until(lambda d: d.execute_script('return document.readyState') == 'complete')
+        
+        # 确保元素可见并滚动到视图中
+        self.driver.execute_script("arguments[0].scrollIntoView(true);", element)
+
+        # 1. 尝试普通点击
+        try:
+            element.click()
+            print("普通点击成功")
+            return
+        except:
+            print(f"普通点击失败")
+
+        # 2. 尝试使用 JavaScript 点击
+        try:
+            self.driver.execute_script("arguments[0].click();", element)
+            print("JavaScript 点击成功")
+            return
+        except:
+            print(f"JavaScript 点击失败:")
+
+        # 3. 尝试 ActionsChains 点击
+        try:
+            actions = ActionChains(self.driver)
+            actions.move_to_element(element).click().perform()
+            print("ActionsChains 点击成功")
+            return
+        except:
+            print("ActionsChains 点击失败:")
+
+        # 4. 尝试发送 Enter 键进行点击
+        try:
+            element.send_keys(Keys.ENTER)
+            print("发送 Enter 键点击成功")
+            return
+        except:
+            print("发送 Enter 键点击失败:")
+
+        # 5. 尝试点击父级元素
+        try:
+            parent_element = self.driver.find_element(By.XPATH, "..")
+            parent_element.click()
+            print("父级元素点击成功")
+            return
+        except:
+            print("父级元素点击s失败:")
+
+        # 6. 尝试完整的 JavaScript 鼠标事件点击
+        try:
+            self.driver.execute_script("""
+                var event = new MouseEvent('click', {
+                    'view': window,
+                    'bubbles': true,
+                    'cancelable': true
+                });
+                arguments[0].dispatchEvent(event);
+            """, element)
+            print("完整的 JavaScript 鼠标事件点击成功")
+            return
+        except:
+            print(f"完整的 JavaScript 鼠标事件点击s失败:")
+
+        print("所有点击方式均失败")
 
         
 
@@ -62,8 +135,8 @@ class ProductScraper:
                 self.chrome_process.terminate()
                 self.chrome_process.wait()
                 print("Chrome 调试进程已终止")
-            except Exception as e:
-                print(f"终止 Chrome 调试进程失败: {e}")
+            except:
+                print("终止 Chrome 调试进程s失败")
                 
 
     def scroll_to_bottom(self):
@@ -114,11 +187,16 @@ class ProductScraper:
 
                 # 产品标题
                 title = str(self.driver.title)
-                company_element = self.driver.find_element(By.CSS_SELECTOR, "#hd_0_container_0 > div:nth-child(1) > div:nth-child(2) > div > div:nth-child(1) > div:nth-child(3) > div > div:nth-child(1) > span")
-                # 公司名称
-                company_name = str(company_element.text.strip())
+
+
+                # 通过类名定位公司名称的元素并获取名称和链接
+                company_element = self.driver.find_element(By.CLASS_NAME, 'company-name')
+
+                # 获取公司名称
+                company_name = company_element.text
+
                 # store_links
-                shop_link = self.get_shop_link()
+                shop_link = company_element.find_element(By.TAG_NAME, 'a').get_attribute('href')
 
                 # 产品的SKU价格信息
                 sku_data = self.sku_details(url)
@@ -132,7 +210,7 @@ class ProductScraper:
                 print("----------------------------------")
 
                 update_query = f"""
-                UPDATE switch
+                UPDATE aliswitch
                 SET 
                     title = ?,
                     company_name = ?,
@@ -145,12 +223,11 @@ class ProductScraper:
                 
                 # 执行更新操作
                 cursor.execute(update_query, (title,company_name,shop_link,sku_data,attributes,url))
-                
-
                 break  # 成功获取信息后跳出循环
 
-            except Exception as e:
-                print(f"Error encountered: {e}")
+            except:
+                
+                traceback.print_exc()
                 
                 # 在异常处理块中展开提示逻辑
                 root = tk.Tk()
@@ -178,6 +255,12 @@ class ProductScraper:
                 # 创建 "跳过" 按钮
                 skip_button = tk.Button(root, text="跳过", command=on_skip)
                 skip_button.pack(side="right", padx=10, pady=10)
+                # 设定10秒定时器，10秒后默认跳过
+                def auto_skip():
+                    user_choice.set("skip")
+                    root.quit()
+
+                root.after(10000, auto_skip)  # 10秒（10000毫秒）后执行 auto_skip
             
                 # 进入事件循环，等待用户点击“重复”或“跳过”
                 root.mainloop()
@@ -190,7 +273,7 @@ class ProductScraper:
                     # 当用户点击按钮后，销毁窗口
                     root.destroy()
                     update_query = f"""
-                    UPDATE switch
+                    UPDATE aliswitch
                     SET 
                         check_status = 2
                     WHERE product_link = ?;
@@ -199,71 +282,33 @@ class ProductScraper:
                     # 执行更新操作
                     cursor.execute(update_query, (url,))
                     break  # 用户选择跳过，跳出循环
-            
-
-                            
-
+                                      
     
     #获取产品的SKU价格
     def sku_details(self, url): 
         sku_data = []
-        
         try:
-            summary_num_element = self.driver.find_element(By.CLASS_NAME, "summary-num")
-            summary_num_value = int(summary_num_element.text.strip())
-        except Exception as e:
-            summary_num_value = 0
-        try:
-            # 尝试查找 pc-sku-wrapper
-            sku_wrapper = self.driver.find_elements(By.CLASS_NAME, "pc-sku-wrapper")
-        except Exception as e:
-            sku_wrapper = [] 
-            
-        try:
-            price_text = self.driver.find_elements(By.CLASS_NAME, "price-text") 
+            sku_element = self.driver.find_element(By.CLASS_NAME, 'product-price')
         except:
-            price_text =[]
-        # 如果找到了 selector-table，则获取 SKU 信息
-        if summary_num_value>0:
-            print('类型1')
-            sku_table = self.driver.find_elements(By.CLASS_NAME, "selector-table")
-            sku_table = sku_table[0]  # 因为 find_elements 返回列表，这里取第一个元素
-            header_elements = sku_table.find_elements(By.CSS_SELECTOR, "div.next-table-header-inner th")
-            headers = [header.text for header in header_elements]
-            body_elements = sku_table.find_elements(By.CSS_SELECTOR, "div.next-table-body table tbody tr.next-table-row")
+            pass
 
-            for row in zip(body_elements, range(summary_num_value)):
-                row_dict = {headers[i]: cell.text for i, cell in enumerate(row[0].find_elements(By.TAG_NAME, "td"))}
-                sku_data.append(row_dict)
-        # 如果没有找到 selector-table，但找到了 pc-sku-wrapper，则获取 SKU 信息
-        elif sku_wrapper:
-            print('类型2')
-            sku_wrapper = sku_wrapper[0]  # 取第一个元素
-            # 尝试展开隐藏的 SKU 项
-            expand_button = self.driver.find_elements(By.CLASS_NAME, "sku-wrapper-expend-button")
-            if expand_button:
-                try:
-                    expand_button[0].click()
-                except Exception:
-                    pass
-            sku_items = sku_wrapper.find_elements(By.CLASS_NAME, "sku-item-wrapper")
+        if sku_element:
+            sku_items = sku_element.find_elements(By.CLASS_NAME, 'price-item')
+            row_dict  = {}
             for sku_item in sku_items:
-                name = sku_item.find_element(By.CLASS_NAME, "sku-item-name").text.strip()
-                price = sku_item.find_element(By.CLASS_NAME, "discountPrice-price").text.strip()
-                row_dict = {"product_name": name, "price": price}
-                sku_data.append(row_dict)
-        #看看有没有价格:
-        elif price_text:
-            print('类型3')
-            price = price_text[0].text.strip()
-            name = str(self.driver.title)
-            row_dict = {"product_name": name, "price": price}
+                price = sku_item.find_element(By.CLASS_NAME,"price").text.strip()
+                quality = sku_item.find_element(By.CLASS_NAME,"quality").text.strip()
+                row_dict[quality] = price
+            #设置了最低起订量的sku
+            try:
+                price_range = sku_element.find_element(By.CLASS_NAME,"price-range")
+                if price_range:
+                    price = price_range.find_element(By.CLASS_NAME,"price").text.strip()
+                    min_moq =  price_range.find_element(By.CLASS_NAME,"min-moq").text.strip()
+                    row_dict[min_moq] = price
+            except:
+                pass
             sku_data.append(row_dict)
-        
-        # 如果两种方法都未找到，进行错误处理
-        else:
-            print("all methods failed. Please check if verification is required.")
-
 
         return str(sku_data)
 
@@ -273,35 +318,66 @@ class ProductScraper:
     def get_product_attributes(self):
         # 初始化一个空字典来存储属性
         product_attributes = {}
+
         try:
-            # 尝试查找 offer-attr-switch 元素并点击展开
-            switch_elements = self.driver.find_elements(By.CLASS_NAME, "offer-attr-switch")
-            if switch_elements:
-                for switch in switch_elements:
-                    try:
-                        switch.click()
-                    except:
-                        print("Failed to click on an offer-attr-switch element, skipping to the next one.")
-                        continue
+            # 最大尝试点击次数，防止无限循环
+            max_clicks = 5
+            click_count = 0
+
+            while click_count < max_clicks:
+                try:
+                    # 查找 more_bg_element 元素
+                    more_bg_element = self.driver.find_element(By.CSS_SELECTOR, ".more-bg a")
+                    
+                    #滚动页面到 more_元素
+                    element_position = self.driver.execute_script("return arguments[0].getBoundingClientRect().top;", more_bg_element)
+                    window_height = self.driver.execute_script("return window.innerHeight;")
+                    scroll_position = element_position - (window_height / 2)
+                    self.driver.execute_script(f"window.scrollBy(0, {scroll_position});")
+                    
+                    # 确保元素可见并且没有被其他元素遮挡
+                    if more_bg_element.is_displayed():
+                        self.safe_click(more_bg_element)
+                        # 增加点击计数
+                        click_count += 1
+
+                        # 再次检查 more_bg_element 是否仍然存在
+                        try:
+                            more_bg_element = self.driver.find_element(By.CSS_SELECTOR, ".more-bg a")
+                            print(f"more-bg 元素仍然存在，进行第 {click_count} 次点击")
+                        except:
+                            # 如果找不到元素，说明点击成功，跳出循环
+                            print("元素已经消失，点击成功")
+                            break
+                    else:
+                        print("元素不可见，无法点击")
+                        break
+
+                except:
+                    # 如果找不到 more-bg 元素，跳出循环
+                    print("找不到 more-bg 元素，可能已经消失")
+                    traceback.print_exc()
+                    break
+
         except:
-            print("No offer-attr-switch elements found.")
-        # 查找包含所有属性的父容器
-        try:
-            attr_lists = self.driver.find_elements(By.CLASS_NAME, "offer-attr")
-            # 查找所有的属性项
-            for attr_list in attr_lists:
-                attr_items = attr_list.find_elements(By.CLASS_NAME, "offer-attr-item")
-                # 遍历每个属性项并提取属性名和值
-                for item in attr_items:
-                    name_element = item.find_element(By.CLASS_NAME, "offer-attr-item-name")
-                    value_element = item.find_element(By.CLASS_NAME, "offer-attr-item-value")
-                    # 获取属性名和值的文本
-                    attr_name = name_element.text.strip()
-                    attr_value = value_element.text.strip()
-                    # 将属性名和值存入字典
-                    product_attributes[attr_name] = attr_value
-        except:
-            print("offer-attr-wrapper or offer-attr-item elements found.")
+            traceback.print_exc()
+
+        
+
+        attribute_info = self.driver.find_element(By.CLASS_NAME,'module_attribute')
+        attribute_lists = attribute_info.find_elements(By.CLASS_NAME,"attribute-list")
+        for attribute_list in attribute_lists:
+            attribute_item_elements = attribute_list.find_elements(By.CLASS_NAME,"attribute-item")
+            for attr_item in attribute_item_elements:
+                name_element = attr_item.find_element(By.CLASS_NAME,"left")
+                value_element = attr_item.find_element(By.CLASS_NAME,"right")
+                # 获取属性名和值的文本
+                attr_name = name_element.text.strip()
+                attr_value = value_element.text.strip()
+                # 将属性名和值存入字典
+                product_attributes[attr_name] = attr_value
+        
+        
         return str(product_attributes)
 
 
@@ -310,13 +386,15 @@ class ProductScraper:
 if __name__ == '__main__':
     current_dir = os.path.dirname(__file__)
     root_dir = os.path.dirname(current_dir)
-    db_path = os.path.join(root_dir, "switch.db")  # Database file path
+    db_path = os.path.join(root_dir, "aliswitch.db")  # Database file path
     # Connect to SQLite database (or create it if it doesn't exist)
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     # 执行查询，提取 check = 0 的所有 url
-    cursor.execute("SELECT product_link FROM switch WHERE check_status = 0;")
-    urls = cursor.fetchall()    
+    cursor.execute("SELECT product_link FROM aliswitch WHERE check_status = 0;")
+    urls = cursor.fetchall()
+    #urls = [["https://www.alibaba.com/product-detail/C9200L-48P-4X-A-Network-Switches_1600911697472.html"]]
+       
     
     scraper = ProductScraper()
     scraper.start_chrome_with_debugging()
@@ -326,6 +404,6 @@ if __name__ == '__main__':
         conn.commit()
     print("All URLs checked, waiting 10 seconds before closing the browser...")
     time.sleep(10)
-    scraper.stop_chrome_debugging()
+    #scraper.stop_chrome_debugging()
     conn.close()
     
