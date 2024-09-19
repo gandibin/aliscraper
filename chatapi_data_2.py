@@ -4,9 +4,12 @@ import sqlite3
 import os
 import traceback
 import ast
+import config
+
+
 
 class SwitchDataFormatter:
-    def __init__(self, db_path, api_key, base_url="https://reverse.onechats.top/v1/"):
+    def __init__(self, db_path, api_key, base_url):
         self.db_path = db_path
         self.api_key = api_key
         self.base_url = base_url
@@ -21,7 +24,7 @@ class SwitchDataFormatter:
         # Query to retrieve all table names
 
         # Retrieve switch data
-        cursor.execute("SELECT id,attributes FROM aliswitch where check_status =1;")  # Assuming 'switches' is your table name
+        cursor.execute("SELECT id,attributes FROM aliswitch where check_status =4;")  # Assuming 'switches' is your table name
         switch_data = cursor.fetchall()
         
         conn.close()
@@ -37,7 +40,7 @@ class SwitchDataFormatter:
         
         # Call the OpenAI API
         completion = openai.chat.completions.create(
-            model="gpt-3.5-turbo",  # You can use 'gpt-3.5-turbo' or 'gpt-4'
+            model="gpt-4",  # You can use 'gpt-3.5-turbo' or 'gpt-4'
             messages=[
                 {"role": "system", "content": "You are a data organization assistant."},
                 {"role": "user", "content": prompt}
@@ -64,13 +67,32 @@ class SwitchDataFormatter:
                 print(json_string)
                 dict_data = {}
                 traceback.print_exc()
+
+        # 如果返回的是列表，取第一个元素        
+        if isinstance(dict_data,list):
+            if dict_data:
+                dict_data = dict_data[0]
+            else:
+                dict_data = dict(dict_data)
+        
+        
+        # 需要检查的标准键
+        required_keys = ['BrandName', 'ModelNumber', 'Ports', 'Communication_Mode', 'LACP', 'POE', 'QoS', 'SNMP', 'Stackable', 'VLAN_Support', 'IP_routing', 'Switching_Capacity', 'speed']
+        # 检查并生成缺失的键
+        try:
+            for key in required_keys:
+                if key not in dict_data:
+                    dict_data[key] = ""  # 为缺失的键赋空值
+        except:
+            print(f"data type is ---- {dict_data}")
+        
         return dict_data
 
     def update_switch_data_in_db(self, formatted_data,pid):
         # Connect to SQLite database
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-        query = f'''INSERT INTO aliswitch_sub_1 (
+        query = f'''INSERT INTO aliswitch_sub_3 (
                         pid,
                         Brand, 
                         Model, 
@@ -86,7 +108,7 @@ class SwitchDataFormatter:
                         IP_routing, 
                         speed
                     ) VALUES (
-                        {pid},
+                        "{pid}",
                         "{formatted_data['BrandName']}", 
                         "{formatted_data['ModelNumber']}", 
                         "{formatted_data['Communication_Mode']}", 
@@ -102,10 +124,10 @@ class SwitchDataFormatter:
                         "{formatted_data['speed']}"
                     );
         '''
-        query2= f"update aliswitch set check_status = 3 where id = {pid}"
+        query2= f"update aliswitch set check_status = 5 where id = {pid}"
         try:
             cursor.execute(query)
-            cursor.execute(query2)#更新状态为3,表示已经经过第一次的openai 3.5 处理, 4为已经过chapgpt 4o第二次处理
+            cursor.execute(query2)#更新状态为3,表示已经经过第一次的openai 3.5 处理, 4为已经过chapgpt 4o第二次处理,5 为4 处理完成第三次
             conn.commit()
             conn.close()
         except:
@@ -117,20 +139,17 @@ class SwitchDataFormatter:
 if __name__ == "__main__":
     current_dir = os.path.dirname(__file__)
     db_path = os.path.join(current_dir, "aliswitch.db")  # Database file path
-    api_key = "sk-hXXlRUJFk0sjkcrYE6A00a37Be3a4c5aA1D592288a790eD8"
-
+    api_key = config.api_key
+    base_url= config.base_url
     formatter = SwitchDataFormatter(db_path, api_key)
     switch_datas = formatter.get_switch_data_from_db()  # Retrieve data from SQLite
     for switch_data in switch_datas:
         try:
             print("------------------------------------------------------------------------------------------------------------------------------------------------------")
             formatted_data = formatter.format_switch_data(switch_data)  # Format data using OpenAI
-            # 需要检查的标准键
-            required_keys = ['BrandName', 'ModelNumber', 'Ports', 'Communication_Mode', 'LACP', 'POE', 'QoS', 'SNMP', 'Stackable', 'VLAN_Support', 'IP_routing', 'Switching_Capacity', 'speed']
-            # 检查并生成缺失的键
-            for key in required_keys:
-                if key not in formatted_data:
-                    formatted_data[key] = ""  # 为缺失的键赋空值
+            print(f"type of data is : {type(formatted_data)}")
+            if isinstance(formatted_data, list):
+                print(formatted_data)
             formatter.update_switch_data_in_db(formatted_data,switch_data[0])  # Update the database with formatted data
         except:
             traceback.print_exc()
