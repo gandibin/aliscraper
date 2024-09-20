@@ -141,7 +141,7 @@ if __name__ == "__main__":
     db_path = os.path.join(current_dir, "aliswitch.db")  # Database file path
     api_key = config.api_key
     base_url= config.base_url
-    formatter = SwitchDataFormatter(db_path, api_key)
+    formatter = SwitchDataFormatter(db_path, api_key,base_url)
     switch_datas = formatter.get_switch_data_from_db()  # Retrieve data from SQLite
     for switch_data in switch_datas:
         try:
