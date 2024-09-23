@@ -38,6 +38,39 @@ if __name__ == "__main__":
     db_path = "aliswitch.db"
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
+    query = "select id, sku_data, title from switch"
+    cursor.execute(query)
+    rows = cursor.fetchall()
+
+    for row in rows:
+        pid = row[0]
+        title = row[2]
+
+        data_dicts = ast.literal_eval(row[1])
+        for data_dict in data_dicts:
+            if 'product_name' in data_dict and data_dict['price']:
+                sku = data_dict['product_name']
+                price = data_dict['price']
+                query2 = f"insert into switch_price(pid, title, sku, price) values({pid},'{title}','{sku}','{price}'); "
+            elif '价格\n(元)' in data_dict and data_dict['价格\n(元)']:
+                price = data_dict['价格\n(元)']
+                del data_dict['价格\n(元)']
+                sku = str( data_dict)
+                query2 = f'insert into switch_price(pid, title, sku, price) values({pid},"{title}","{sku}","{price}"); '
+            cursor.execute(query2)
+            
+        print("-----------------------------------------------------")
+    
+    conn.commit()
+    conn.close()
+    #     data_dict = data_dict[0]
+    #     for key in data_dict:
+    #         price =  data_dict[key]
+    #         query2  = f"insert into switch_price(pid, title, sku, price) values({row[0]},'{row[2]}','{key}','{price}'); "
+    #         cursor.execute(query2)
+    # conn.commit()
+        
+
 
     
 
